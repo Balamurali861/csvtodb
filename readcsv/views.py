@@ -29,25 +29,27 @@ class Signup(APIView):
 
 
 class Authenticated(GenericAPIView):
-
-    permissionclasses = [IsAuthenticated]
-
-    @staticmethod
-    def post(request):
+    queryset = File.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = FileSerializer
+    def post(self, request):
         """Handles CSV upload
         http://127.0.0.1:8000/api/upload/?file
          Input format --> {
                             'file': 'upload_file.csv'
                             }"""
 
-        file_save, response = save_uploaded_file(request)
-        if file_save:
-            return Response(response)
+        sample = request.resolver_match.url_name
+        if sample == 'file-upload':
+            file_save, response = save_uploaded_file(request)
+            if file_save:
+                return Response(response)
+            else:
+                return Response(response)
         else:
-            return Response(response)
+            return Response("Request Method Not Allowed")
 
-    @staticmethod
-    def get(response):
+    def get(self,request):
         """Handles viewing of existing records with filters
          http://127.0.0.1:8000/api/filter/?city=Bangalore&price_min=300&price_max=10000
          Input format --> one or multiple filters
@@ -61,48 +63,55 @@ class Authenticated(GenericAPIView):
                             "city": city
                             }"""
 
-        date_min = response.GET.get('date_min', File.objects.order_by('transaction_time').values('transaction_time').first()['transaction_time'])
-        date_max = response.GET.get('date_max', File.objects.order_by('transaction_time').values('transaction_time').last()['transaction_time'])
-        price_min = response.GET.get('price_min',File.objects.order_by('total_price').values('total_price').first()['total_price'])
-        price_max = response.GET.get('price_max',File.objects.order_by('total_price').values('total_price').last()['total_price'])
-        quantity_min = response.GET.get('quantity_min', File.objects.order_by('quantity').values('quantity').first()['quantity'])
-        quantity_max = response.GET.get('quantity_max',File.objects.order_by('quantity').values('quantity').last()['quantity'])
-        city = response.GET.get('city', None)
-        if not city:
-            key_args = {
-                'transaction_time__range': [date_min,date_max],
-                'total_price__range': [price_min,price_max],
-                'quantity__range': [quantity_min,quantity_max],
-            }
+        sample = request.resolver_match.url_name
+        if sample == 'filter':
+            date_min = request.GET.get('date_min', File.objects.order_by('transaction_time').values('transaction_time').first()['transaction_time'])
+            date_max = request.GET.get('date_max', File.objects.order_by('transaction_time').values('transaction_time').last()['transaction_time'])
+            price_min = request.GET.get('price_min',File.objects.order_by('total_price').values('total_price').first()['total_price'])
+            price_max = request.GET.get('price_max',File.objects.order_by('total_price').values('total_price').last()['total_price'])
+            quantity_min = request.GET.get('quantity_min', File.objects.order_by('quantity').values('quantity').first()['quantity'])
+            quantity_max = request.GET.get('quantity_max',File.objects.order_by('quantity').values('quantity').last()['quantity'])
+            city = request.GET.get('city', None)
+            if not city:
+                key_args = {
+                    'transaction_time__range': [date_min,date_max],
+                    'total_price__range': [price_min,price_max],
+                    'quantity__range': [quantity_min,quantity_max],
+                }
+            else:
+                key_args = {
+                    'transaction_time__range': [date_min,date_max],
+                    'total_price__range': [price_min,price_max],
+                    'quantity__range': [quantity_min,quantity_max],
+                    'delivered_to_city':city
+                }
+            result = self.get_queryset().filter(**key_args).values()
+            serializer = FileSerializer(result,many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
         else:
-            key_args = {
-                'transaction_time__range': [date_min,date_max],
-                'total_price__range': [price_min,price_max],
-                'quantity__range': [quantity_min,quantity_max],
-                'delivered_to_city':city
-            }
-        result = File.objects.filter(**key_args).values()
-        serializer = FileSerializer(result,many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response("Request Method Not Allowed")
 
-    @staticmethod
-    def delete(request):
+    def delete(self,request):
         """DELETES MULTIPLE OF SINGLE ENTRY BASED ON PARAMETERS GIVEN
         http://127.0.0.1:8000/api/delete/?transaction_id=5d8e2097397643fc84d68b3431bd5bb4
                  Input format --> one or multiple filters
                             {
                             "transaction_id": something
                             }"""
-        body = request.GET
-        key_args = {}
-        for i in body:
-            key_args[i] = body.get(i)
-        result = File.objects.filter(**key_args).delete()
-        if result[0] > 0:
-            return Response(str(result[0]) + "RECORDS DELETED")
+        sample = request.resolver_match.url_name
+        if sample=='delete-entries':
+            body = request.GET
+            key_args = {}
+            for i in body:
+                key_args[i] = body.get(i)
+            result = File.objects.filter(**key_args).delete()
+            if result[0] > 0:
+                return Response(str(result[0]) + " RECORDS DELETED")
+            else:
+                return Response(
+                    "Could not complete the action , Reason: Either entry does not exist or the parameters are wrong")
         else:
-            return Response(
-                "Could not complete the action , Reason: Either entry does not exist or the parameters are wrong")
+            return Response("Request Method Not Allowed")
 
 class ResultExplorer(GenericAPIView):
     """Handles viewing of existing records with pagination
@@ -116,7 +125,7 @@ class ResultExplorer(GenericAPIView):
     serializer_class = FileSerializer
     pagination_class = CustomPagination
 
-    def get(self,request,*args,**kwargs):
+    def get(self,request, *args, **kwargs):
         try:
             paginated_queryset = self.paginate_queryset(self.get_queryset())
             if paginated_queryset is not None:
